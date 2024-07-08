@@ -1,6 +1,7 @@
 import os
 import json
 import getpass
+import platform
 
 import pyblish.api
 
@@ -169,6 +170,8 @@ class FusionSubmitDeadline(
                     end=int(instance.data["frameEndHandle"])
                 ),
 
+                "MachineName": platform.node(),
+
                 "Comment": comment,
             },
             "PluginInfo": {
@@ -236,6 +239,13 @@ class FusionSubmitDeadline(
                 value=environment[key]
             ) for index, key in enumerate(environment)
         })
+
+        # Apply render globals, like e.g. data from collect machine list
+        render_globals = instance.data.get("renderGlobals", {})
+        if render_globals:
+            self.log.debug("Applying 'renderGlobals' to job info: %s",
+                           render_globals)
+            payload["JobInfo"].update(render_globals)
 
         self.log.debug("Submitting..")
         self.log.debug(json.dumps(payload, indent=4, sort_keys=True))

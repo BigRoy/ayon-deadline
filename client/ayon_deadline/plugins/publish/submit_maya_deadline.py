@@ -28,6 +28,7 @@ import itertools
 from collections import OrderedDict
 
 import attr
+import clique
 
 from ayon_core.pipeline import (
     AYONPyblishPluginMixin
@@ -35,8 +36,6 @@ from ayon_core.pipeline import (
 from ayon_core.lib import (
     BoolDef,
     NumberDef,
-    TextDef,
-    EnumDef,
     is_in_tests,
 )
 from ayon_maya.api.lib_rendersettings import RenderSettings
@@ -57,6 +56,28 @@ def _validate_deadline_bool_value(instance, attribute, value):
             ("Value of {} must be one of "
              "'0', '1', True, False").format(attribute)
         )
+
+
+def collect_sequences(files):
+    """Collect sequences as `path/to/sequence.####.exr` entries"""
+    patterns = [clique.PATTERNS["frames"]]
+    collections, remainder = clique.assemble(files,
+                                             minimum_items=1,
+                                             patterns=patterns)
+
+    result = []
+    for col in collections:
+        # Padding in clique will be zero if the first frame doesn't start with
+        # a zero and thus has no explicit padding found, e.g. frame 1001.
+        first_frame = list(col.indexes)[0]
+        frame_padding = "#" * (col.padding or len(str(first_frame)))
+        sequence_path = col.head + frame_padding + col.tail
+        result.append(sequence_path)
+
+    # Include all of remainder paths to be sure
+    result.extend(remainder)
+
+    return result
 
 
 @attr.s
@@ -188,21 +209,17 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
             job_info.LimitGroups = ",".join(self.limit)
 
         attr_values = self.get_attr_values_from_data(instance.data)
-        render_globals = instance.data.setdefault("renderGlobals", dict())
-        machine_list = attr_values.get("machineList", "")
-        if machine_list:
-            if attr_values.get("whitelist", True):
-                machine_list_key = "Whitelist"
-            else:
-                machine_list_key = "Blacklist"
-            render_globals[machine_list_key] = machine_list
 
         job_info.Priority = attr_values.get("priority")
         job_info.ChunkSize = attr_values.get("chunkSize")
 
         # Add options from RenderGlobals
+        # Apply render globals, like e.g. data from collect machine list
         render_globals = instance.data.get("renderGlobals", {})
-        job_info.update(render_globals)
+        if render_globals:
+            self.log.debug("Applying 'renderGlobals' to job info: %s",
+                           render_globals)
+            job_info.update(render_globals)
 
         keys = [
             "FTRACK_API_KEY",
@@ -244,7 +261,7 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
         # Add list of expected files to job
         # ---------------------------------
         exp = instance.data.get("expectedFiles")
-        for filepath in iter_expected_files(exp):
+        for filepath in collect_sequences(iter_expected_files(exp)):
             job_info.OutputDirectory += os.path.dirname(filepath)
             job_info.OutputFilename += os.path.basename(filepath)
 
@@ -794,17 +811,6 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
                       decimals=0,
                       minimum=1,
                       maximum=1000),
-            TextDef("machineList",
-                    label="Machine List",
-                    default="",
-                    placeholder="machine1,machine2"),
-            EnumDef("whitelist",
-                    label="Machine List (Allow/Deny)",
-                    items={
-                        True: "Allow List",
-                        False: "Deny List",
-                    },
-                    default=False),
             NumberDef("tile_priority",
                       label="Tile Assembler Priority",
                       decimals=0,
