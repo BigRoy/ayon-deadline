@@ -263,6 +263,22 @@ class HoudiniSubmitDeadline(
             job_info.MachineLimit = attribute_values.get(
                 "export_machine_limit", self.export_machine_limit
             )
+
+            # If the export chunk size is larger than 1 for a render this
+            # usually means we're looking to export everything from a
+            # single farm task - which Deadline only supports if there is
+            # no by frame step. So we strip off the by frame step for the
+            # export job itself.
+            # TODO: See if we can enforce the single task in Deadline whilst
+            #  also being able to supply the chunked frames for Houdini to
+            #  render.
+            if job_info.ChunkSize > 1 and "x" in job_info.Frames:
+                self.log.debug(
+                    "Export job chunk size is large than one but the frames"
+                    " list is non-consecutive. Forcing consecutive frame range"
+                    " to ensure single export task.")
+                job_info.Frames = job_info.Frames.split("x")[0]
+
         else:
             job_info.Priority = attribute_values.get(
                 "priority", self.priority
