@@ -219,7 +219,8 @@ class HoudiniSubmitDeadline(
 
         filepath = context.data["currentFile"]
         filename = os.path.basename(filepath)
-        job_info.Name = "{} - {} {}".format(filename, instance.name, job_type)
+        label = f"{instance.data.get('folderPath')} > {instance.name}"
+        job_info.Name = "{} - {} {}".format(filename, label, job_type)
         job_info.BatchName = filename
 
         job_info.UserName = context.data.get(

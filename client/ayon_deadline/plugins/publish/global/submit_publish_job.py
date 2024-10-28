@@ -173,7 +173,8 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
 
         data = instance.data.copy()
         product_name = data["productName"]
-        job_name = "Publish - {}".format(product_name)
+        label = f"{instance.data.get('folderPath')} > {product_name}"
+        job_name = f"Publish - {label}"
 
         anatomy = instance.context.data['anatomy']
 
