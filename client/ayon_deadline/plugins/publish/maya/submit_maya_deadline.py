@@ -4,7 +4,7 @@
 This module is taking care of submitting job from Maya to Deadline. It
 creates job and set correct environments. Its behavior is controlled by
 ``DEADLINE_REST_URL`` environment variable - pointing to Deadline Web Service
-and :data:`MayaSubmitDeadline.use_published` property telling Deadline to
+and :data:`AYONDeadlineJobInfo.UsePublished` property telling Deadline to
 use published scene workfile or not.
 
 If ``vrscene`` or ``assscene`` are detected in families, it will first
@@ -18,106 +18,78 @@ Attributes:
 
 from __future__ import print_function
 import os
-import json
-import getpass
 import copy
 import re
 import hashlib
 from datetime import datetime
 import itertools
 from collections import OrderedDict
-
-import attr
-import clique
+from dataclasses import dataclass, field, asdict
 
 from ayon_core.pipeline import (
     AYONPyblishPluginMixin
 )
-from ayon_core.lib import (
-    BoolDef,
-    NumberDef,
-    is_in_tests,
-)
+
+from ayon_core.lib import is_in_tests
+from ayon_core.pipeline.farm.tools import iter_expected_files
+
 from ayon_maya.api.lib_rendersettings import RenderSettings
 from ayon_maya.api.lib import get_attr_in_layer
 
-from ayon_core.pipeline.farm.tools import iter_expected_files
-
 from ayon_deadline import abstract_submit_deadline
-from ayon_deadline.abstract_submit_deadline import DeadlineJobInfo
 
 
-def _validate_deadline_bool_value(instance, attribute, value):
-    if not isinstance(value, (str, bool)):
-        raise TypeError(
-            "Attribute {} must be str or bool.".format(attribute))
-    if value not in {"1", "0", True, False}:
-        raise ValueError(
-            ("Value of {} must be one of "
-             "'0', '1', True, False").format(attribute)
-        )
-
-
-def collect_sequences(files):
-    """Collect sequences as `path/to/sequence.####.exr` entries"""
-    patterns = [clique.PATTERNS["frames"]]
-    collections, remainder = clique.assemble(files,
-                                             minimum_items=1,
-                                             patterns=patterns)
-
-    result = []
-    for col in collections:
-        # Padding in clique will be zero if the first frame doesn't start with
-        # a zero and thus has no explicit padding found, e.g. frame 1001.
-        first_frame = list(col.indexes)[0]
-        frame_padding = "#" * (col.padding or len(str(first_frame)))
-        sequence_path = col.head + frame_padding + col.tail
-        result.append(sequence_path)
-
-    # Include all of remainder paths to be sure
-    result.extend(remainder)
-
-    return result
-
-
-@attr.s
+@dataclass
 class MayaPluginInfo(object):
-    SceneFile = attr.ib(default=None)   # Input
-    OutputFilePath = attr.ib(default=None)  # Output directory and filename
-    OutputFilePrefix = attr.ib(default=None)
-    Version = attr.ib(default=None)  # Mandatory for Deadline
-    UsingRenderLayers = attr.ib(default=True)
-    RenderLayer = attr.ib(default=None)  # Render only this layer
-    Renderer = attr.ib(default=None)
-    ProjectPath = attr.ib(default=None)  # Resolve relative references
+    SceneFile: str = field(default=None)   # Input
+    OutputFilePath: str = field(default=None)  # Output directory and filename
+    OutputFilePrefix: str = field(default=None)
+    Version: str = field(default=None)  # Mandatory for Deadline
+    UsingRenderLayers: bool = field(default=True)
+    RenderLayer: str = field(default=None)  # Render only this layer
+    Renderer: str = field(default=None)
+    ProjectPath: str = field(default=None)  # Resolve relative references
     # Include all lights flag
-    RenderSetupIncludeLights = attr.ib(
-        default="1", validator=_validate_deadline_bool_value)
-    StrictErrorChecking = attr.ib(default=True)
+    RenderSetupIncludeLights: str = field(default="1")
+    StrictErrorChecking: bool = field(default=True)
+
+    def __post__init__(self):
+        self._validate_deadline_bool_value()
+
+    def _validate_deadline_bool_value(self):
+        if not isinstance(self.RenderSetupIncludeLights, (str, bool)):
+            raise TypeError(
+                "Attribute 'RenderSetupIncludeLights' must be str or bool."
+            )
+        if self.RenderSetupIncludeLights not in {"1", "0", True, False}:
+            raise ValueError(
+                "Value of 'RenderSetupIncludeLights' must be one of "
+                "'0', '1', True, False"
+            )
 
 
-@attr.s
+@dataclass
 class PythonPluginInfo(object):
-    ScriptFile = attr.ib()
-    Version = attr.ib(default="3.6")
-    Arguments = attr.ib(default=None)
-    SingleFrameOnly = attr.ib(default=None)
+    ScriptFile: str = field()
+    Version: str = field(default="3.6")
+    Arguments: str = field(default=None)
+    SingleFrameOnly: str = field(default=None)
 
 
-@attr.s
+@dataclass
 class VRayPluginInfo(object):
-    InputFilename = attr.ib(default=None)   # Input
-    SeparateFilesPerFrame = attr.ib(default=None)
-    VRayEngine = attr.ib(default="V-Ray")
-    Width = attr.ib(default=None)
-    Height = attr.ib(default=None)  # Mandatory for Deadline
-    OutputFilePath = attr.ib(default=True)
-    OutputFileName = attr.ib(default=None)  # Render only this layer
+    InputFilename: str = field(default=None)   # Input
+    SeparateFilesPerFrame: str = field(default=None)
+    VRayEngine: str = field(default="V-Ray")
+    Width: str = field(default=None)
+    Height: str = field(default=None)  # Mandatory for Deadline
+    OutputFilePath: str = field(default=None)
+    OutputFileName: str = field(default=None)  # Render only this layer
 
 
-@attr.s
+@dataclass
 class ArnoldPluginInfo(object):
-    ArnoldFile = attr.ib(default=None)
+    ArnoldFile: str = field(default=None)
 
 
 class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
@@ -130,64 +102,12 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
     settings_category = "deadline"
 
     tile_assembler_plugin = "DraftTileAssembler"
-    priority = 50
     tile_priority = 50
-    limit = []  # limit groups
-    jobInfo = {}
-    pluginInfo = {}
-    group = "none"
-    strict_error_checking = True
 
-    @classmethod
-    def apply_settings(cls, project_settings):
-        settings = project_settings["deadline"]["publish"]["MayaSubmitDeadline"]  # noqa
-
-        # Take some defaults from settings
-        cls.asset_dependencies = settings.get("asset_dependencies",
-                                              cls.asset_dependencies)
-        cls.import_reference = settings.get("import_reference",
-                                            cls.import_reference)
-        cls.use_published = settings.get("use_published", cls.use_published)
-        cls.priority = settings.get("priority", cls.priority)
-        cls.tile_priority = settings.get("tile_priority", cls.tile_priority)
-        cls.limit = settings.get("limit", cls.limit)
-        cls.group = settings.get("group", cls.group)
-        cls.strict_error_checking = settings.get("strict_error_checking",
-                                                 cls.strict_error_checking)
-        job_info = settings.get("jobInfo")
-        if job_info:
-            job_info = json.loads(job_info)
-        plugin_info = settings.get("pluginInfo")
-        if plugin_info:
-            plugin_info = json.loads(plugin_info)
-
-        cls.jobInfo = job_info or cls.jobInfo
-        cls.pluginInfo = plugin_info or cls.pluginInfo
-
-    def get_job_info(self):
-        job_info = DeadlineJobInfo(Plugin="MayaBatch")
-
-        # todo: test whether this works for existing production cases
-        #       where custom jobInfo was stored in the project settings
-        job_info.update(self.jobInfo)
-
+    def get_job_info(self, job_info=None):
         instance = self._instance
-        context = instance.context
 
-        # Always use the original work file name for the Job name even when
-        # rendering is done from the published Work File. The original work
-        # file name is clearer because it can also have subversion strings,
-        # etc. which are stripped for the published file.
-        src_filepath = context.data["currentFile"]
-        src_filename = os.path.basename(src_filepath)
-
-        if is_in_tests():
-            src_filename += datetime.now().strftime("%d%m%Y%H%M%S")
-
-        job_info.Name = "%s - %s" % (src_filename, instance.name)
-        job_info.BatchName = src_filename
         job_info.Plugin = instance.data.get("mayaRenderPlugin", "MayaBatch")
-        job_info.UserName = context.data.get("deadlineUser", getpass.getuser())
 
         # Deadline requires integers in frame range
         frames = "{start}-{end}x{step}".format(
@@ -196,51 +116,6 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
             step=int(instance.data["byFrameStep"]),
         )
         job_info.Frames = frames
-
-        job_info.Pool = instance.data.get("primaryPool")
-        job_info.SecondaryPool = instance.data.get("secondaryPool")
-        job_info.Comment = context.data.get("comment")
-        job_info.Priority = instance.data.get("priority", self.priority)
-
-        if self.group != "none" and self.group:
-            job_info.Group = self.group
-
-        if self.limit:
-            job_info.LimitGroups = ",".join(self.limit)
-
-        attr_values = self.get_attr_values_from_data(instance.data)
-
-        job_info.Priority = attr_values.get("priority")
-        job_info.ChunkSize = attr_values.get("chunkSize")
-
-        # Add options from RenderGlobals
-        # Apply render globals, like e.g. data from collect machine list
-        render_globals = instance.data.get("renderGlobals", {})
-        if render_globals:
-            self.log.debug("Applying 'renderGlobals' to job info: %s",
-                           render_globals)
-            job_info.update(render_globals)
-
-        # Set job environment variables
-        job_info.add_render_job_env_var()
-        job_info.add_instance_job_env_vars(self._instance)
-
-        # to recognize render jobs
-        job_info.add_render_job_env_var()
-        job_info.EnvironmentKeyValue["AYON_LOG_NO_COLORS"] = "1"
-
-        # Adding file dependencies.
-        if not is_in_tests() and self.asset_dependencies:
-            dependencies = instance.context.data["fileDependencies"]
-            for dependency in dependencies:
-                job_info.AssetDependency += dependency
-
-        # Add list of expected files to job
-        # ---------------------------------
-        exp = instance.data.get("expectedFiles")
-        for filepath in collect_sequences(iter_expected_files(exp)):
-            job_info.OutputDirectory += os.path.dirname(filepath)
-            job_info.OutputFilename += os.path.basename(filepath)
 
         return job_info
 
@@ -280,11 +155,7 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
             StrictErrorChecking=strict_error_checking
         )
 
-        plugin_payload = attr.asdict(plugin_info)
-
-        # Patching with pluginInfo from settings
-        for key, value in self.pluginInfo.items():
-            plugin_payload[key] = value
+        plugin_payload = asdict(plugin_info)
 
         return plugin_payload
 
@@ -301,8 +172,8 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
         output_dir = os.path.dirname(first_file)
         instance.data["outputDir"] = output_dir
 
-        # Patch workfile (only when use_published is enabled)
-        if self.use_published:
+        # Patch workfile (only when UsePublished is enabled)
+        if self.job_info.UsePublished:
             self._patch_workfile()
 
         # Gather needed data ------------------------------------------------
@@ -472,10 +343,7 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
                                                      self.tile_priority)
         assembly_job_info.TileJob = False
 
-        # TODO: This should be a new publisher attribute definition
-        pool = instance.context.data["project_settings"]["deadline"]
-        pool = pool["publish"]["ProcessSubmittedJobOnFarm"]["deadline_pool"]
-        assembly_job_info.Pool = pool or instance.data.get("primaryPool", "")
+        assembly_job_info.Pool = self.job_info.Pool
 
         assembly_plugin_info = {
             "CleanupTiles": 1,
@@ -583,7 +451,7 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
 
         job_info = copy.deepcopy(self.job_info)
 
-        if not is_in_tests() and self.asset_dependencies:
+        if not is_in_tests() and self.job_info.UseAssetDependencies:
             # Asset dependency to wait for at least the scene file to sync.
             job_info.AssetDependency += self.scene_path
 
@@ -639,7 +507,7 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
             "OutputFilePath": os.path.dirname(vray_scene)
         }
 
-        return job_info, attr.asdict(plugin_info)
+        return job_info, asdict(plugin_info)
 
     def _get_vray_render_payload(self, data):
 
@@ -660,7 +528,7 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
             OutputFileName=job_info.OutputFilename[0]
         )
 
-        return job_info, attr.asdict(plugin_info)
+        return job_info, asdict(plugin_info)
 
     def _get_arnold_render_payload(self, data):
         # Job Info
@@ -677,7 +545,7 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
             ArnoldFile=ass_filepath
         )
 
-        return job_info, attr.asdict(plugin_info)
+        return job_info, asdict(plugin_info)
 
     def format_vray_output_filename(self):
         """Format the expected output file of the Export job.
@@ -772,34 +640,6 @@ class MayaSubmitDeadline(abstract_submit_deadline.AbstractSubmitDeadline,
             start=int(self._instance.data["frameStartHandle"]),
             end=int(self._instance.data["frameEndHandle"]),
         )
-
-    @classmethod
-    def get_attribute_defs(cls):
-        defs = super(MayaSubmitDeadline, cls).get_attribute_defs()
-
-        defs.extend([
-            NumberDef("priority",
-                      label="Priority",
-                      default=cls.default_priority,
-                      decimals=0),
-            NumberDef("chunkSize",
-                      label="Frames Per Task",
-                      default=1,
-                      decimals=0,
-                      minimum=1,
-                      maximum=1000),
-            NumberDef("tile_priority",
-                      label="Tile Assembler Priority",
-                      decimals=0,
-                      default=cls.tile_priority),
-            BoolDef("strict_error_checking",
-                    label="Strict Error Checking",
-                    default=cls.strict_error_checking),
-
-        ])
-
-        return defs
-
 
 def _format_tiles(
         filename,

@@ -1,22 +1,14 @@
-# -*- coding: utf-8 -*-
-"""Collect Deadline servers from instance.
-
-This is resolving index of server lists stored in `deadlineServers` instance
-attribute or using default server if that attribute doesn't exists.
-
-"""
 import os
 
 import pyblish.api
 
-from ayon_deadline.lib import FARM_FAMILIES, JOB_ENV_DATA_KEY
+from ayon_deadline.lib import JOB_ENV_DATA_KEY
 
 
 class CollectDeadlineJobEnvVars(pyblish.api.ContextPlugin):
     """Collect set of environment variables to submit with deadline jobs"""
     order = pyblish.api.CollectorOrder
     label = "Deadline Farm Environment Variables"
-    families = FARM_FAMILIES
     targets = ["local"]
 
     ENV_KEYS = [
@@ -44,12 +36,24 @@ class CollectDeadlineJobEnvVars(pyblish.api.ContextPlugin):
     ]
 
     def process(self, context):
-        env = {}
+        env = context.data.setdefault(JOB_ENV_DATA_KEY, {})
         for key in self.ENV_KEYS:
+            # Skip already set keys
+            if key in env:
+                continue
             value = os.getenv(key)
             if value:
                 self.log.debug(f"Setting job env: {key}: {value}")
                 env[key] = value
 
-        # Transfer some environment variables from current context
-        context.data.setdefault(JOB_ENV_DATA_KEY, {}).update(env)
+
+class CollectAYONServerToFarmJob(CollectDeadlineJobEnvVars):
+    label = "Add AYON Server URL to farm job"
+    settings_category = "deadline"
+
+    # Defined via settings
+    enabled = False
+
+    ENV_KEYS = [
+        "AYON_SERVER_URL"
+    ]
