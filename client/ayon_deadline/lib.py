@@ -80,26 +80,6 @@ class JobType(str, Enum):
             return default
 
 
-def get_instance_job_extra_info(instance) -> "dict[str | int, str]":
-    """Return the job extra info for the instance.
-
-    Any instance extra info values will override the context extra info values.
-    """
-    extra_info = {}
-    for job_extra_info in [
-        instance.context.data.get(JOB_EXTRA_INFO_DATA_KEY, {}),
-        instance.data.get(JOB_EXTRA_INFO_DATA_KEY, {})
-    ]:
-        if job_extra_info:
-            extra_info.update(job_extra_info)
-
-    # Return the dict sorted just for readability in future logs
-    if extra_info:
-        extra_info = dict(sorted(extra_info.items()))
-
-    return extra_info
-
-
 def get_deadline_pools(
     webservice_url: str,
     auth: Optional[Tuple[str, str]] = None,
@@ -249,6 +229,26 @@ def get_instance_job_envs(instance) -> "dict[str, str]":
         env = dict(sorted(env.items()))
 
     return env
+
+
+def get_instance_job_extra_info(instance) -> "dict[str | int, str]":
+    """Return the job extra info for the instance.
+
+    Any instance extra info values will override the context extra info values.
+    """
+    extra_info = {}
+    for job_extra_info in [
+        instance.context.data.get(JOB_EXTRA_INFO_DATA_KEY, {}),
+        instance.data.get(JOB_EXTRA_INFO_DATA_KEY, {})
+    ]:
+        if job_extra_info:
+            extra_info.update(job_extra_info)
+
+    # Return the dict sorted just for readability in future logs
+    if extra_info:
+        extra_info = dict(sorted(extra_info.items()))
+
+    return extra_info
 
 
 class DeadlineKeyValueVar(dict):
@@ -675,6 +675,12 @@ class PublishDeadlineJobInfo(DeadlineJobInfo):
         """
         for key, value in get_instance_job_envs(instance).items():
             self.EnvironmentKeyValue[key] = value
+
+        for key, value in get_instance_job_extra_info(instance).items():
+            if isinstance(key, int):
+                self.ExtraInfo[key] = value
+            else:
+                self.ExtraInfoKeyValue[key] = value
 
     def _fill_serialize_value(
         self, key: str, value: Any, output: Dict[str, Any]
