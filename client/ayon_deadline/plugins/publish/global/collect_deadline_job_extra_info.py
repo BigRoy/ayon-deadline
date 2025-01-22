@@ -15,7 +15,7 @@ class CollectDeadlineJobExtraInfo(pyblish.api.InstancePlugin):
     def process(self, instance):
 
         # Transfer some environment variables from current context
-        job_info = instance.data.setdefault(JOB_EXTRA_INFO_DATA_KEY, {})
+        job_extra_info = instance.data.setdefault(JOB_EXTRA_INFO_DATA_KEY, {})
 
         # Support Extra Info 0-10 (int key)
         # Project Name, Folder Path, Task Name, App Name
@@ -23,12 +23,12 @@ class CollectDeadlineJobExtraInfo(pyblish.api.InstancePlugin):
         folder_entity = instance.data.get("folderEntity", {})
 
         # TODO: Make this customizable in settings somehow?
-        job_info[0] = folder_entity.get("label") or folder_entity["name"]
-        job_info[1] = context.data.get("projectName", "")
-        job_info[2] = instance.data.get("folderPath", "")
-        job_info[3] = instance.data.get("task", "")
-        job_info[4] = instance.data.get("productName", "")
-        job_info[5] = instance.context.data.get("appName", "")
+        job_extra_info[0] = folder_entity.get("label") or folder_entity["name"]
+        job_extra_info[1] = context.data.get("projectName", "")
+        job_extra_info[2] = instance.data.get("folderPath", "")
+        job_extra_info[3] = instance.data.get("task", "")
+        job_extra_info[4] = instance.data.get("productName", "")
+        job_extra_info[5] = instance.context.data.get("appName", "")
 
         # Supply the tools for the current context so that we can visualize
         # on the farm what the tools were at time of submission
@@ -38,7 +38,7 @@ class CollectDeadlineJobExtraInfo(pyblish.api.InstancePlugin):
             task_entity=context.data.get("taskEntity"),
             project_settings=context.data.get("project_settings")
         )
-        job_info[6] = " ".join(sorted(tools))
+        job_extra_info[6] = " ".join(sorted(tools))
 
         self.log.debug(
-            f"Farm job extra info: {json.dumps(job_info, indent=4)}")
+            f"Farm job extra info: {json.dumps(job_extra_info, indent=4)}")
