@@ -71,7 +71,12 @@ class NukeSubmitDeadline(
         self.job_info = self.get_job_info(job_info=job_info)
 
         self._set_scene_path(
-            context.data["currentFile"], job_info.UsePublished)
+            context.data["currentFile"], job_info.use_published)
+
+        self._append_job_output_paths(
+            instance,
+            self.job_info
+        )
 
         self.plugin_info = self.get_plugin_info(
             scene_path=self.scene_path,
@@ -109,6 +114,9 @@ class NukeSubmitDeadline(
                 write_node_name = baking_script["bakeWriteNodeName"]
 
                 self.job_info.Name = os.path.basename(render_path)
+
+                # baking job shouldn't be split
+                self.job_info.ChunkSize = 999999
 
                 self.plugin_info = self.get_plugin_info(
                     scene_path=scene_path,

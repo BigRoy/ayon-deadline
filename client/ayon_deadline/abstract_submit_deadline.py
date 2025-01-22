@@ -10,10 +10,12 @@ import getpass
 import os
 from datetime import datetime
 from copy import deepcopy
+from typing import Optional
+import clique
 
 import requests
-
 import pyblish.api
+
 from ayon_core.pipeline.publish import (
     AbstractMetaInstancePlugin,
     KnownPublishError,
@@ -24,7 +26,7 @@ from ayon_core.pipeline.publish.lib import (
 )
 from ayon_core.pipeline.farm.tools import iter_expected_files
 from ayon_core.lib import is_in_tests
-from ayon_deadline.lib import AYONDeadlineJobInfo
+from ayon_deadline.lib import PublishDeadlineJobInfo
 
 JSONDecodeError = getattr(json.decoder, "JSONDecodeError", ValueError)
 
@@ -104,7 +106,13 @@ class AbstractSubmitDeadline(
         self.job_info = self.get_job_info(job_info=deepcopy(job_info))
 
         self._set_scene_path(
-            context.data["currentFile"], job_info.UsePublished)
+            context.data["currentFile"],
+            job_info.use_published
+        )
+        self._append_job_output_paths(
+            instance,
+            self.job_info
+        )
         self.plugin_info = self.get_plugin_info()
 
         self.aux_files = self.get_aux_files()
@@ -154,6 +162,28 @@ class AbstractSubmitDeadline(
         self.scene_path = file_path
         self.log.info("Using {} for render/export.".format(file_path))
 
+    def _append_job_output_paths(self, instance, job_info):
+        """Set output part to Job info
+
+        Note: 'expectedFiles' might be remapped after `_set_scene_path`
+            due to remapping workfile to published workfile.
+        Used in JobOutput > Explore output
+        """
+        collections, remainder = clique.assemble(
+            iter_expected_files(instance.data["expectedFiles"]),
+            assume_padded_when_ambiguous=True,
+            patterns=[clique.PATTERNS["frames"]])
+        paths = []
+        for collection in collections:
+            padding = "#" * collection.padding
+            path = collection.format(f"{{head}}{padding}{{tail}}")
+            paths.append(path)
+        paths.extend(remainder)
+
+        for path in paths:
+            job_info.OutputDirectory += os.path.dirname(path)
+            job_info.OutputFilename += os.path.basename(path)
+
     def process_submission(self):
         """Process data for submission.
 
@@ -171,7 +201,7 @@ class AbstractSubmitDeadline(
 
     def get_generic_job_info(self, instance: pyblish.api.Instance):
         context: pyblish.api.Context = instance.context
-        job_info: AYONDeadlineJobInfo = instance.data["deadline"]["job_info"]
+        job_info: PublishDeadlineJobInfo = instance.data["deadline"]["job_info"]
 
         # Always use the original work file name for the Job name even when
         # rendering is done from the published Work File. The original work
@@ -192,13 +222,8 @@ class AbstractSubmitDeadline(
         if job_info.SecondaryPool != "none":
             job_info.SecondaryPool = job_info.SecondaryPool
 
-        exp = instance.data.get("expectedFiles")
-        for filepath in iter_expected_files(exp):
-            job_info.OutputDirectory += os.path.dirname(filepath)
-            job_info.OutputFilename += os.path.basename(filepath)
-
         # Adding file dependencies.
-        if not is_in_tests() and job_info.UseAssetDependencies:
+        if not is_in_tests() and job_info.use_asset_dependencies:
             dependencies = instance.context.data.get("fileDependencies", [])
             for dependency in dependencies:
                 job_info.AssetDependency += dependency
@@ -216,20 +241,22 @@ class AbstractSubmitDeadline(
             self.plugin_info[key] = value
 
     @abstractmethod
-    def get_job_info(self, job_info=None, **kwargs):
+    def get_job_info(
+        self, job_info: Optional[PublishDeadlineJobInfo] = None, **kwargs
+    ):
         """Return filled Deadline JobInfo.
 
         This is host/plugin specific implementation of how to fill data in.
 
         Args:
-            job_info (AYONDeadlineJobInfo): dataclass object with collected
+            job_info (PublishDeadlineJobInfo): dataclass object with collected
                 values from Settings and Publisher UI
 
         See:
-            :class:`AYONDeadlineJobInfo`
+            :class:`PublishDeadlineJobInfo`
 
         Returns:
-            :class:`DeadlineJobInfo`: Filled Deadline JobInfo.
+            :class:`PublishDeadlineJobInfo`: Filled Deadline JobInfo.
 
         """
         pass
@@ -241,7 +268,7 @@ class AbstractSubmitDeadline(
         This is host/plugin specific implementation of how to fill data in.
 
         See:
-            :class:`DeadlineJobInfo`
+            :class:`PublishDeadlineJobInfo`
 
         Returns:
             dict: Filled Deadline JobInfo.
@@ -290,8 +317,8 @@ class AbstractSubmitDeadline(
         """Assemble payload data from its various parts.
 
         Args:
-            job_info (DeadlineJobInfo): Deadline JobInfo. You can use
-                :class:`DeadlineJobInfo` for it.
+            job_info (PublishDeadlineJobInfo): Deadline JobInfo. You can use
+                :class:`PublishDeadlineJobInfo` for it.
             plugin_info (dict): Deadline PluginInfo. Plugin specific options.
             aux_files (list, optional): List of auxiliary file to submit with
                 the job.
@@ -338,7 +365,7 @@ class AbstractSubmitDeadline(
         try:
             result = response.json()
         except JSONDecodeError:
-            msg = "Broken response {}. ".format(response)
+            msg = f"Broken response {response.text}. "
             msg += "Try restarting the Deadline Webservice."
             self.log.warning(msg, exc_info=True)
             raise KnownPublishError("Broken response from DL")
