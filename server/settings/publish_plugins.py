@@ -40,6 +40,15 @@ def extract_jobinfo_overrides_enum():
         {"value": "secondary_pool", "label": "Secondary pool"},
         {"value": "machine_list", "label": "Machine List"},
         {"value": "machine_list_deny", "label": "Machine List is a Deny"},
+        {"value": "publish_job_state", "label": "Publish Job State"},
+    ]
+
+
+def publish_job_state_enum():
+    """Enum for initial state of publish job"""
+    return [
+        {"value": "active", "label": "Active"},
+        {"value": "suspended", "label": "Suspended"},
     ]
 
 
@@ -100,6 +109,13 @@ class CollectJobInfoItem(BaseSettingsModel):
     job_delay: str = SettingsField(
         "", title="Delay job",
         placeholder="dd:hh:mm:ss"
+    )
+    publish_job_state : str = SettingsField(
+        "active",
+        enum_resolver=publish_job_state_enum,
+        title="Publish Job State",
+        description="Publish job could wait to be manually enabled from "
+                    "Suspended state after quality check"
     )
     use_published: bool = SettingsField(True, title="Use Published scene")
     use_asset_dependencies: bool = SettingsField(
@@ -270,19 +286,19 @@ class AOVFilterSubmodel(BaseSettingsModel):
 class ProcessCacheJobFarmModel(BaseSettingsModel):
     """Process submitted job on farm."""
 
-    deadline_department: str = SettingsField(title="Department")
-    deadline_pool: str = SettingsField(title="Pool")
-    deadline_group: str = SettingsField(title="Group")
     deadline_priority: int = SettingsField(title="Priority")
+    deadline_group: str = SettingsField(title="Group")
+    deadline_pool: str = SettingsField(title="Pool")
+    deadline_department: str = SettingsField(title="Department")
 
 
 class ProcessSubmittedJobOnFarmModel(BaseSettingsModel):
     """Process submitted job on farm."""
 
-    deadline_department: str = SettingsField(title="Department")
-    deadline_pool: str = SettingsField(title="Pool")
-    deadline_group: str = SettingsField(title="Group")
     deadline_priority: int = SettingsField(title="Priority")
+    deadline_group: str = SettingsField(title="Group")
+    deadline_pool: str = SettingsField(title="Pool")
+    deadline_department: str = SettingsField(title="Department")
     skip_integration_repre_list: list[str] = SettingsField(
         default_factory=list,
         title="Skip integration of representation with ext"
@@ -355,13 +371,15 @@ DEFAULT_DEADLINE_PLUGINS_SETTINGS = {
           "group": "",
           "priority": 50,
           "job_delay": "",
+          "publish_job_state": "active",
           "overrides": [
             "department",
             "chunk_size",
             "group",
             "priority",
             "primary_pool",
-            "secondary_pool"
+            "secondary_pool",
+            "publish_job_state"
           ],
           "chunk_size": 1,
           "department": "",
@@ -386,13 +404,15 @@ DEFAULT_DEADLINE_PLUGINS_SETTINGS = {
           "group": "",
           "priority": 50,
           "job_delay": "",
+          "publish_job_state": "active",
           "overrides": [
             "department",
             "chunk_size",
             "group",
             "priority",
             "primary_pool",
-            "secondary_pool"
+            "secondary_pool",
+            "publish_job_state"
           ],
           "chunk_size": 10,
           "department": "",
@@ -454,16 +474,16 @@ DEFAULT_DEADLINE_PLUGINS_SETTINGS = {
         "use_gpu": True
     },
     "ProcessSubmittedCacheJobOnFarm": {
-        "deadline_department": "",
-        "deadline_pool": "",
+        "deadline_priority": 50,
         "deadline_group": "",
-        "deadline_priority": 50
+        "deadline_pool": "",
+        "deadline_department": "",
     },
     "ProcessSubmittedJobOnFarm": {
-        "deadline_department": "",
-        "deadline_pool": "",
-        "deadline_group": "",
         "deadline_priority": 50,
+        "deadline_group": "",
+        "deadline_pool": "",
+        "deadline_department": "",
         "skip_integration_repre_list": [],
         "families_transfer": ["render3d", "render2d", "slate"],
         "aov_filter": [

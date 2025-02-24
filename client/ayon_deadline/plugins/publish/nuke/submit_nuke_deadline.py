@@ -71,7 +71,10 @@ class NukeSubmitDeadline(
         self.job_info = self.get_job_info(job_info=job_info)
 
         self._set_scene_path(
-            context.data["currentFile"], job_info.use_published)
+            context.data["currentFile"],
+            job_info.use_published,
+            instance.data.get("stagingDir_is_custom", False)
+        )
 
         self._append_job_output_paths(
             instance,
@@ -97,7 +100,6 @@ class NukeSubmitDeadline(
             render_path = instance.data["path"]
             instance.data["outputDir"] = os.path.dirname(
                 render_path).replace("\\", "/")
-            instance.data["publishJobState"] = "Suspended"
 
         if instance.data.get("bakingNukeScripts"):
             for baking_script in instance.data["bakingNukeScripts"]:
@@ -107,7 +109,7 @@ class NukeSubmitDeadline(
                 # frames_farm instance doesn't have render submission
                 if response_data.get("_id"):
                     self.job_info.BatchName = response_data["Props"]["Batch"]
-                    self.job_info.JobDependency0 = response_data["_id"]
+                    self.job_info.JobDependencies.append(response_data["_id"])
 
                 render_path = baking_script["bakeRenderPath"]
                 scene_path = baking_script["bakeScriptPath"]
@@ -147,7 +149,7 @@ class NukeSubmitDeadline(
                 end=end_frame
             )
         limit_groups = self._get_limit_groups(self.node_class_limit_groups)
-        job_info.LimitGroups = limit_groups
+        job_info.LimitGroups.extend(limit_groups)
 
         render_path = instance.data["path"]
         job_info.Name = os.path.basename(render_path)

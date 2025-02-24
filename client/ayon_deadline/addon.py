@@ -91,11 +91,11 @@ class DeadlineAddon(AYONAddon, IPluginPaths):
             con_info = self.get_deadline_server_connection_info(
                 server_name, local_settings
             )
-            server_url, auth = con_info.url, con_info.auth
-            pools = get_deadline_pools(server_url, auth)
-            groups = get_deadline_groups(server_url, auth)
-            limit_groups = get_deadline_limit_groups(server_url, auth)
-            machines = get_deadline_workers(server_url, auth)
+            server_url, auth, verify = con_info.url, con_info.auth, con_info.verify
+            pools = get_deadline_pools(server_url, auth, verify)
+            groups = get_deadline_groups(server_url, auth, verify)
+            limit_groups = get_deadline_limit_groups(server_url, auth, verify)
+            machines = get_deadline_workers(server_url, auth, verify)
             server_info = DeadlineServerInfo(
                 pools=pools,
                 limit_groups=limit_groups,
@@ -220,7 +220,11 @@ class DeadlineAddon(AYONAddon, IPluginPaths):
             "SingleFrameOnly": "True" if single_frame_only else "False",
         }
         return self.submit_job(
-            server_name, plugin_info, job_info, aux_files
+            server_name,
+            plugin_info,
+            job_info,
+            aux_files,
+            local_settings=local_settings
         )
 
     def get_deadline_server_connection_info(
@@ -244,7 +248,7 @@ class DeadlineAddon(AYONAddon, IPluginPaths):
         auth = self._get_server_user_auth(dl_server_info, local_settings)
         return DeadlineConnectionInfo(
             server_name,
-            dl_server_info["value"],
+            dl_server_info["value"].rstrip("/"),
             auth,
             not dl_server_info["not_verify_ssl"],
         )

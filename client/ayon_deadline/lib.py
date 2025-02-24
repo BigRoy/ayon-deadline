@@ -83,7 +83,8 @@ class JobType(str, Enum):
 def get_deadline_pools(
     webservice_url: str,
     auth: Optional[Tuple[str, str]] = None,
-    log: Optional[Logger] = None
+    verify: Optional[bool] = None,
+    log: Optional[Logger] = None,
 ) -> List[str]:
     """Get pools from Deadline API.
 
@@ -91,8 +92,9 @@ def get_deadline_pools(
         webservice_url (str): Server url.
         auth (Optional[Tuple[str, str]]): Tuple containing username,
             password
+        verify(Optional[bool]): Whether to verify the TLS certificate
+            of the Deadline Web Service.
         log (Optional[Logger]): Logger to log errors to, if provided.
-
     Returns:
         List[str]: Limit Groups.
 
@@ -101,13 +103,14 @@ def get_deadline_pools(
 
     """
     endpoint = f"{webservice_url}/api/pools?NamesOnly=true"
-    return _get_deadline_info(endpoint, auth, log, "pools")
+    return _get_deadline_info(endpoint, auth, verify, "pools", log)
 
 
 def get_deadline_groups(
     webservice_url: str,
     auth: Optional[Tuple[str, str]] = None,
-    log: Optional[Logger] = None
+    verify: Optional[bool] = None,
+    log: Optional[Logger] = None,
 ) -> List[str]:
     """Get Groups from Deadline API.
 
@@ -115,8 +118,9 @@ def get_deadline_groups(
         webservice_url (str): Server url.
         auth (Optional[Tuple[str, str]]): Tuple containing username,
             password
+        verify(Optional[bool]): Whether to verify the TLS certificate
+            of the Deadline Web Service.
         log (Optional[Logger]): Logger to log errors to, if provided.
-
     Returns:
         List[str]: Limit Groups.
 
@@ -125,13 +129,14 @@ def get_deadline_groups(
 
     """
     endpoint = f"{webservice_url}/api/groups"
-    return _get_deadline_info(endpoint, auth, log, "groups")
+    return _get_deadline_info(endpoint, auth, verify, "groups", log)
 
 
 def get_deadline_limit_groups(
     webservice_url: str,
     auth: Optional[Tuple[str, str]] = None,
-    log: Optional[Logger] = None
+    verify: Optional[bool] = None,
+    log: Optional[Logger] = None,
 ) -> List[str]:
     """Get Limit Groups from Deadline API.
 
@@ -139,8 +144,9 @@ def get_deadline_limit_groups(
         webservice_url (str): Server url.
         auth (Optional[Tuple[str, str]]): Tuple containing username,
             password
+        verify(Optional[bool]): Whether to verify the TLS certificate
+            of the Deadline Web Service.
         log (Optional[Logger]): Logger to log errors to, if provided.
-
     Returns:
         List[str]: Limit Groups.
 
@@ -149,13 +155,14 @@ def get_deadline_limit_groups(
 
     """
     endpoint = f"{webservice_url}/api/limitgroups?NamesOnly=true"
-    return _get_deadline_info(endpoint, auth, log, "limitgroups")
+    return _get_deadline_info(endpoint, auth, verify, "limitgroups", log)
 
 
 def get_deadline_workers(
     webservice_url: str,
     auth: Optional[Tuple[str, str]] = None,
-    log: Optional[Logger] = None
+    verify: Optional[bool] = None,
+    log: Optional[Logger] = None,
 ) -> List[str]:
     """Get Workers (eg.machine names) from Deadline API.
 
@@ -163,8 +170,9 @@ def get_deadline_workers(
         webservice_url (str): Server url.
         auth (Optional[Tuple[str, str]]): Tuple containing username,
             password
+        verify(Optional[bool]): Whether to verify the TLS certificate
+            of the Deadline Web Service.
         log (Optional[Logger]): Logger to log errors to, if provided.
-
     Returns:
         List[str]: Limit Groups.
 
@@ -173,14 +181,15 @@ def get_deadline_workers(
 
     """
     endpoint = f"{webservice_url}/api/slaves?NamesOnly=true"
-    return _get_deadline_info(endpoint, auth, log, "workers")
+    return _get_deadline_info(endpoint, auth, verify, "workers", log)
 
 
 def _get_deadline_info(
-    endpoint,
-    auth,
-    log,
-    item_type
+    endpoint: str,
+    auth: Optional[Tuple[str, str]],
+    verify: Optional[bool],
+    item_type: str,
+    log: Optional[Logger],
 ):
     from .abstract_submit_deadline import requests_get
 
@@ -189,6 +198,8 @@ def _get_deadline_info(
 
     try:
         kwargs = {}
+        if verify is not None:
+            kwargs["verify"] = verify
         if auth:
             kwargs["auth"] = auth
         response = requests_get(endpoint, **kwargs)
@@ -638,6 +649,7 @@ class PublishDeadlineJobInfo(DeadlineJobInfo):
     """Contains additional AYON variables from Settings for internal logic."""
 
     # AYON custom fields used for Settings
+    publish_job_state : Optional[str] = field(default=None)
     use_published: Optional[bool] = field(default=None)
     use_asset_dependencies: Optional[bool] = field(default=None)
     use_workfile_dependency: Optional[bool] = field(default=None)
@@ -653,10 +665,12 @@ class PublishDeadlineJobInfo(DeadlineJobInfo):
             "ConcurrentTasks": data["concurrent_tasks"],
             "Frames": data.get("frames", ""),
             "Group": cls._sanitize(data["group"]),
+            "LimitGroups": cls._sanitize(data["limit_groups"]),
             "Pool": cls._sanitize(data["primary_pool"]),
             "SecondaryPool": cls._sanitize(data["secondary_pool"]),
 
             # fields needed for logic, values unavailable during collection
+            "publish_job_state": data["publish_job_state"],
             "use_published": data["use_published"],
             "use_asset_dependencies": data["use_asset_dependencies"],
             "use_workfile_dependency": data["use_workfile_dependency"],
@@ -686,6 +700,7 @@ class PublishDeadlineJobInfo(DeadlineJobInfo):
         self, key: str, value: Any, output: Dict[str, Any]
     ):
         if key not in (
+            "publish_job_state",
             "use_published",
             "use_asset_dependencies",
             "use_workfile_dependency",
