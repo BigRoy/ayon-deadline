@@ -4,13 +4,14 @@
 It provides Deadline JobInfo data class.
 
 """
+from __future__ import annotations
 import json.decoder
 from abc import abstractmethod
 import getpass
 import os
 from datetime import datetime
 from copy import deepcopy
-from typing import Optional
+from typing import Any, Optional
 import clique
 
 import requests
@@ -87,12 +88,12 @@ class AbstractSubmitDeadline(
 
     def __init__(self, *args, **kwargs):
         super(AbstractSubmitDeadline, self).__init__(*args, **kwargs)
-        self._instance = None
+        self._instance: Optional[pyblish.api.Instance] = None
         self._deadline_url = None
-        self.scene_path = None
-        self.job_info = None
-        self.plugin_info = None
-        self.aux_files = None
+        self.scene_path: Optional[str] = None
+        self.job_info: Optional[PublishDeadlineJobInfo] = None
+        self.plugin_info: Optional[dict[str, Any]] = None
+        self.aux_files: Optional[list[str]] = None
 
     def process(self, instance):
         """Plugin entry point."""
@@ -208,7 +209,9 @@ class AbstractSubmitDeadline(
 
     def get_generic_job_info(self, instance: pyblish.api.Instance):
         context: pyblish.api.Context = instance.context
-        job_info: PublishDeadlineJobInfo = instance.data["deadline"]["job_info"]
+        job_info: PublishDeadlineJobInfo = (
+            instance.data["deadline"]["job_info"]
+        )
 
         # Always use the original work file name for the Job name even when
         # rendering is done from the published Work File. The original work
@@ -221,7 +224,8 @@ class AbstractSubmitDeadline(
 
         job_info.Name = "%s - %s" % (batch_name, instance.name)
         job_info.BatchName = batch_name
-        job_info.UserName = context.data.get("deadlineUser", getpass.getuser())  # TODO clean deadlineUser
+        # TODO clean deadlineUser
+        job_info.UserName = context.data.get("deadlineUser", getpass.getuser())
         job_info.Comment = context.data.get("comment")
 
         if job_info.Pool != "none":
@@ -290,7 +294,7 @@ class AbstractSubmitDeadline(
         that field even empty must be present on Deadline submission.
 
         Returns:
-            list: List of files.
+            list[str]: List of files.
 
         """
         return []
