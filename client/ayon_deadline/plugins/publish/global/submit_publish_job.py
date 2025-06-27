@@ -425,7 +425,7 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
             "user": instance.context.data["user"],
             "intent": instance.context.data.get("intent"),
             "comment": instance.context.data.get("comment"),
-            "job": render_job or None,
+            "job": render_job or {},
             "instances": instances
         }
 
