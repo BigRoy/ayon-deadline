@@ -29,7 +29,8 @@ class FusionPluginInfo:
     # Tools: Comma separated list of tools to render
     # saver1,saver2,saver3
     # NOTE: This requires a customized Deadline Fusion plug-in that supports
-    #  filtering which saver tools are enabled in the Deadline plug-in. A customization currently existing at
+    #  filtering which saver tools are enabled in the Deadline plug-in.
+    #  A customization currently existing at Colorbleed animation studios.
     Tools: str = field(default=None)
 
 
